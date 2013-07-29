@@ -18,7 +18,7 @@ module Gollum
     #           :message   - The String commit message.
     #           :name      - The String author full name.
     #           :email     - The String email address.
-    #           :parent    - Optional Grit::Commit parent to this update.
+    #           :parent    - Optional Rugged::Commit parent to this update.
     #           :tree      - Optional String SHA of the tree to create the
     #                        index from.
     #           :committer - Optional Gollum::Committer instance.  If provided,
@@ -34,15 +34,19 @@ module Gollum
 
     # Public: References the Git index for this commit.
     #
-    # Returns a Grit::Index.
+    # Returns a Rugged::Index.
     def index
       @index ||= begin
         idx = @wiki.repo.index
-        if tree   = options[:tree]
+        if tree = options[:tree]
+          #todo: how do i know this line works properly?
           idx.read_tree(tree)
         elsif parent = parents.first
-          idx.read_tree(parent.tree.id)
+          #todo: how do i know this line works properly?
+          idx.read_tree(parent.tree)
         end
+
+        puts "Returning index: #{idx}"
         idx
       end
     end
@@ -106,31 +110,32 @@ module Gollum
 
       fullpath = ::File.join(*[@wiki.page_file_dir, dir, path].compact)
       fullpath = fullpath[1..-1] if fullpath =~ /^\//
+      puts "fullpath: #{fullpath}"
 
-      if index.current_tree && tree = index.current_tree / (@wiki.page_file_dir || '/')
-        tree = tree / dir unless tree.nil?
-      end
+      # Check the tree to make sure there's no duplicate page entries
+      downpath = path.downcase.sub(/\.\w+$/, '')
+      index.each do |entry|
+        puts "Entry: #{entry}"
 
-      if tree
-        downpath = path.downcase.sub(/\.\w+$/, '')
+        # if the file is missing ("staged for deletion"?)
+        next if entry[:stage] == (1 << 9)
 
-        tree.blobs.each do |blob|
-          next if page_path_scheduled_for_deletion?(index.tree, fullpath)
+        existing_file = entry[:path].downcase.sub(/\.\w+$/, '')
+        existing_file_ext = ::File.extname(entry[:path]).sub(/^\./, '')
 
-          existing_file = blob.name.downcase.sub(/\.\w+$/, '')
-          existing_file_ext = ::File.extname(blob.name).sub(/^\./, '')
+        new_file_ext = ::File.extname(path).sub(/^\./, '')
 
-          new_file_ext = ::File.extname(path).sub(/^\./, '')
-
-          if downpath == existing_file && !(allow_same_ext && new_file_ext == existing_file_ext)
-            raise DuplicatePageError.new(dir, blob.name, path)
-          end
+        if downpath == existing_file && !(allow_same_ext && new_file_ext == existing_file_ext)
+          raise DuplicatePageError.new(dir, entry[:path], path)
         end
       end
 
+      puts "fullpath: #{fullpath}"
+      puts "Data to put into the tree: #{@wiki.normalize(data)}"
+      # Add the data into the index
+      # Should we force utf-8 instead?
       fullpath = fullpath.force_encoding('ascii-8bit') if fullpath.respond_to?(:force_encoding)
-
-      index.add(fullpath, @wiki.normalize(data))
+      index.add(fullpath)
     end
 
     # Update the given file in the repository's working directory if there
@@ -200,32 +205,6 @@ module Gollum
     # Returns nothing.
     def after_commit(&block)
       @callbacks << block
-    end
-
-    # Determine if a given page (regardless of format) is scheduled to be
-    # deleted in the next commit for the given Index.
-    #
-    # map   - The Hash map:
-    #         key - The String directory or filename.
-    #         val - The Hash submap or the String contents of the file.
-    # path - The String path of the page file. This may include the format
-    #         extension in which case it will be ignored.
-    #
-    # Returns the Boolean response.
-    def page_path_scheduled_for_deletion?(map, path)
-      parts = path.split('/')
-      if parts.size == 1
-        deletions = map.keys.select { |k| !map[k] }
-        downfile = parts.first.downcase.sub(/\.\w+$/, '')
-        deletions.any? { |d| d.downcase.sub(/\.\w+$/, '') == downfile }
-      else
-        part = parts.shift
-        if rest = map[part]
-          page_path_scheduled_for_deletion?(rest, parts.join('/'))
-        else
-          false
-        end
-      end
     end
 
     # Determine if a given file is scheduled to be deleted in the next commit

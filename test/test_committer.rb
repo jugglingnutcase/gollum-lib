@@ -88,6 +88,8 @@ context "Wiki" do
      Grit::Index.any_instance.stubs(:commit).returns(true)
 
      page = @wiki.page(name)
+
+     # What do i do here?
      @wiki.repo.git.expects(:checkout).at_least(1).with(anything, anything, anything, "#{page_file_dir}/#{name}.md")
      @wiki.update_page(page, page.name, format, "# Elrond", commit_details())
    end
