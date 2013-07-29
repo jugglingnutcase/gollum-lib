@@ -106,6 +106,11 @@ task :install => :build do
   sh "gem install --local --no-ri --no-rdoc pkg/#{name}-#{version}.gem"
 end
 
+desc "Pry"
+task :pry do
+  sh "ruby -S pry -Ilib -r ./lib/#{name}.rb"
+end
+
 #############################################################################
 #
 # Packaging tasks
